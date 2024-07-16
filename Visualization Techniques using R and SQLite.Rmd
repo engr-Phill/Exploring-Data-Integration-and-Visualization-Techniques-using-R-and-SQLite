@@ -1,0 +1,278 @@
+---
+title: "Exploring Data Integration and Visualization Techniques using R and SQLite"
+author: "Me"
+date: "2023-05-01"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+  knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Question 1
+
+```{r}
+### (a) Read data in ###
+
+
+# Read movies500.csv
+movies <- read.csv("movies500.csv")
+
+# Read movies500_genres.csv
+movies_genres <- read.csv("movies500_genres.csv")
+
+# Read genres.csv
+genres <- read.csv("genres.csv")
+
+
+### (b) Create a SQLite database ###
+
+library(RSQLite)
+
+# delete file if it exists
+if (file.exists("movies.sqlite")) {
+  file.remove("movies.sqlite")
+}
+
+# Create a connection to the SQLite database
+con <- dbConnect(SQLite(), "movies.sqlite")
+
+### (c) Copy the data ###
+# Copy movies data to the movies table in SQLite
+dbWriteTable(con, "movies", movies, overwrite = TRUE, na.omit())
+
+# Copy movies_genres data to the movies_genres table in SQLite
+dbWriteTable(con, "movies_genres", movies_genres, overwrite = TRUE, na.omit())
+
+
+
+```
+
+```{sql connection=con}
+--### (d) Count the number of rows ###
+SELECT COUNT(*) FROM movies
+```
+
+```{sql connection=con}
+--### (e) Output a list of movies ###
+SELECT title, 
+  runtime, release_date 
+  FROM movies 
+  WHERE runtime > 480
+  ORDER BY runtime ASC 
+```
+
+```{sql connection=con}
+--### (f) Movies with love in the title  ###
+SELECT title 
+FROM movies 
+WHERE title 
+LIKE '%love%'
+```
+
+```{sql connection=con, eval = TRUE}
+--### (g) Create a table genres  ###
+CREATE TABLE genres (
+          genre_id INTEGER PRIMARY KEY, 
+          genre_name TEXT)
+```
+
+```{r}
+dbWriteTable(con, "genres", genres, overwrite = TRUE)
+```
+
+```{sql connection=con, eval = TRUE}
+--### (h) Copy contents over to table of genres  ###
+INSERT INTO genres (genre_id, genre_name)
+          SELECT genre_id, genre_name
+          FROM genres
+```
+
+```{sql connection=con, eval = TRUE}
+--### (i) Add new row  ###
+INSERT INTO genres (genre_id, genre_name)
+          VALUES (3579, 'University Comedy')
+```
+
+```{sql connection=con, eval = TRUE}
+--### (j) Modify the name of genre 3579  ###
+UPDATE genres
+          SET genre_name = 'University Tragedy'
+          WHERE genre_id = 3579
+```
+
+```{sql connection=con, eval = TRUE}
+--### (k) Find id' s associated with the movie Running Wild  ###
+
+SELECT genre_id 
+FROM movies_genres 
+WHERE tmdbId IN (SELECT tmdbId FROM movies WHERE title = 'Running Wild')
+
+```
+
+```{sql connection=con, eval = TRUE}
+--### (l) Three way join  ###     
+SELECT DISTINCT genres.genre_name
+FROM movies_genres
+INNER JOIN genres ON movies_genres.genre_id = genres.genre_id
+WHERE movies_genres.tmdbId IN (SELECT tmdbId FROM movies WHERE title = 'Running Wild');
+```
+
+```{sql connection=con, eval = TRUE}
+--### (m) number of movies by genre  
+SELECT genres.genre_name, COUNT(*) AS movie_count
+FROM movies_genres
+LEFT JOIN genres ON movies_genres.genre_id = genres.genre_id
+GROUP BY genres.genre_name
+HAVING movie_count >= 20
+ORDER BY movie_count DESC
+```
+
+```{r}
+# Disconnect from the SQLite database
+dbDisconnect(con)
+```
+
+# Question 2
+
+```{r}
+library(dplyr)
+library(tidyr)
+# Read the file into R
+vehicles <- read.csv("motor_vehicle_modified.csv", stringsAsFactors = FALSE)
+```
+
+```{r}
+### (a) “4-gear auto” and are make Kia or Honda  ###
+# Find the number of vehicles with transmission type "4-gear auto" and make Kia or Honda
+count_vehicles <- nrow(filter(vehicles, transmission_type == "4-gear auto" & make %in% c("Kia", "Honda")))
+count_vehicles
+```
+
+```{r}
+### (b) Drop columns  ###
+# Drop the columns vehicle_usage and vehicle_type
+vehicles <- select(vehicles, -vehicle_usage, -vehicle_type)
+```
+
+```{r}
+### (c) Create, a contingency  ###
+# Create the contingency table vehicles_country_status
+vehicles_country_status <- table(vehicles$original_country, vehicles$import_status)
+
+### (d) top 3 countries used  ###
+# Calculate the total number of used cars by country
+used_cars_by_country <- vehicles_country_status[, "used"]
+
+# Sort the countries in decreasing order of the number of used cars
+sorted_countries <- names(used_cars_by_country)[order(used_cars_by_country, decreasing = TRUE)]
+
+# Filter out the "Not Known" country from the top countries
+top_countries <- sorted_countries[!sorted_countries %in% "Not Known"][1:3]
+
+# Display the resulting table for the top countries (excluding "Not Known") with all import statuses
+top_countries_table <- vehicles_country_status[top_countries, ]
+top_countries_table
+```
+
+# Question 3
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Load the Star Wars dataset
+data(starwars)
+
+### (a) draw a horizontal bar chart  ###
+# Count the number of individuals by species
+species_count <- starwars %>%
+  group_by(species) %>%
+  summarize(count = n())
+
+# Plot the horizontal bar chart
+ggplot(species_count, aes(x = count, y = reorder(species, count))) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Number of Individuals", y = "Species") +
+  ggtitle("Number of Individuals by Species")
+```
+
+```{r}
+### (b) Add a column  ###
+# Add a column 'num' showing the number of individuals of each species
+starwars <- starwars %>%
+  mutate(num = table(species)[as.character(species)])
+```
+
+```{r}
+### (c) Add a column  ###
+# Add a column 'mainspecies' based on 'num' values
+starwars <- starwars %>%
+  mutate(mainspecies = ifelse(num > 1, as.character(species), "Other"))
+```
+
+```{r}
+### (d) draw a scatter plot of the height and mass  ###
+# Draw a scatter plot of height and mass, colored by 'mainspecies'
+ggplot(starwars, aes(x = height, y = mass, color = mainspecies)) +
+  geom_point() +
+  labs(x = "Height", y = "Mass", color = "Main Species") +
+  ggtitle("Height vs. Mass by Main Species")
+```
+
+```{r}
+### (e) Identify outlier ###
+# Identify and remove the outlier
+outlier <- starwars %>%
+  filter(height > 150 & mass > 500) %>%
+  select(name, height, mass, species)
+outlier
+
+starwars <- starwars %>%
+  anti_join(outlier)
+
+# Redraw the scatter plot without the outlier
+ggplot(starwars, aes(x = height, y = mass, color = mainspecies)) +
+  geom_point() +
+  labs(x = "Height", y = "Mass", color = "Main Species") +
+  ggtitle("Height vs. Mass by Main Species (Outlier Removed)")
+```
+
+```{r}
+### (f) side-by-side scatter plots ###
+# Filter the data for humans and droids
+humans <- starwars %>% filter(mainspecies == "Human")
+droids <- starwars %>% filter(mainspecies == "Droid")
+
+# Create scatter plots for humans and droids using facet_wrap
+ggplot() +
+  geom_point(data = humans, aes(x = height, y = mass, color = mainspecies)) +
+  geom_smooth(data = humans, aes(x = height, y = mass, color = mainspecies), method = "lm", se = FALSE) +
+  geom_point(data = droids, aes(x = height, y = mass, color = mainspecies)) +
+  geom_smooth(data = droids, aes(x = height, y = mass, color = mainspecies), method = "lm", se = FALSE) +
+  facet_wrap(~ mainspecies, ncol = 2) +
+  labs(x = "Height", y = "Mass", color = "Main Species") +
+  ggtitle("Scatter Plots of Height vs. Mass for Humans and Droids")
+
+
+```
+
+```{r}
+### (g) Draw boxplots ###
+# Draw boxplots of height for each 'mainspecies'
+ggplot(starwars, aes(x = mainspecies, y = height)) +
+  geom_boxplot() +
+  labs(x = "Main Species", y = "Height") +
+  ggtitle("Boxplots of Height by Main Species")
+```
+
+```{r}
+### (h) Draw a horizontal stacked bar chart ###
+# Draw a horizontal stacked bar chart of eye color proportions within each 'mainspecies'
+ggplot(starwars, aes(x = mainspecies, fill = eye_color)) +
+  geom_bar(position = "fill") +
+  labs(x = "Main Species", y = "Proportion", fill = "Eye Color") +
+  ggtitle("Proportions of Eye Colors within Main Species")
+
+```
